@@ -1,0 +1,32 @@
+
+---
+
+# Technologies Used
+
+Python  
+Pandas  
+NumPy  
+PyTorch  
+Statsmodels  
+Scikit-learn  
+Matplotlib  
+yfinance  
+
+---
+
+# Future Improvements
+
+Potential extensions include:
+
+- Transformer-based time-series models
+- Multi-asset portfolio optimization
+- Macroeconomic indicators and sentiment signals
+- Transaction cost modeling
+- Reinforcement learning trading strategies
+
+---
+
+# Disclaimer
+
+This project is for **educational and research purposes only**.  
+It does not constitute financial advice or investment recommendations.
