@@ -1,163 +1,234 @@
-# Quantitative Asset Forecasting — Gold & Stock/ETF Portfolio Modeling
+# Quantitative Asset Forecasting — Multi-Architecture Direction Prediction
 
-A quantitative research project comparing statistical and deep learning models for financial time-series forecasting and trading strategy evaluation.
-
-This project builds an end-to-end pipeline including data retrieval, feature engineering, predictive modeling, and portfolio backtesting to analyze whether machine learning models can generate useful trading signals.
+A quant-style research project comparing two LSTM architectures for 5-day directional forecasting across four assets. Two notebooks are included deliberately — each optimised for a different modeling philosophy.
 
 ---
 
-# Overview
+## Repository Structure
 
-Financial markets are noisy and difficult to predict. This project investigates whether machine learning and statistical time-series models can improve short-term price prediction and translate those predictions into profitable trading strategies.
-
-The system compares:
-
-- Naive baseline forecasting
-- ARIMA statistical time-series models
-- PyTorch LSTM deep learning models
-
-Predictions are converted into trading signals and evaluated using portfolio backtesting metrics.
+```
+├── quant_asset_forecasting_v3.ipynb        # Feature-engineered LSTM pipeline
+├── quant_lstm_multivariate.ipynb           # Raw multivariate LSTM pipeline
+├── README.md                               # This file
+├── quant_forecasting_model_comparison_robust.csv   # V3 results
+└── quant_lstm_multivariate_results.csv             # Multivariate results
+```
 
 ---
 
-# Assets Analyzed
+## Assets
 
-The following assets are analyzed in this research pipeline:
-
-- **GLD** — Gold ETF  
-- **SPY** — S&P 500 ETF  
-- **QQQ** — Nasdaq 100 ETF  
-- **AAPL** — Apple stock  
-
-Historical price data is retrieved programmatically using the Yahoo Finance API.
+| Ticker | Description |
+|--------|-------------|
+| GLD | Gold ETF |
+| SPY | S&P 500 ETF |
+| QQQ | Nasdaq-100 ETF |
+| AAPL | Apple Inc. |
 
 ---
 
-# Data Source
+## Why Two Notebooks?
 
-Market data is downloaded using **yfinance**, which provides historical daily OHLCV data:
+The core question this project explores is: **does feature engineering help or hurt an LSTM on daily financial data?**
 
-- Open
-- High
-- Low
-- Close
-- Volume
+| | V3 (Feature-Engineered) | Multivariate (Raw Sequences) |
+|--|-------------------------|------------------------------|
+| Input | 40+ hand-crafted features per ticker | Raw OHLCV for all 4 tickers jointly |
+| Cross-asset info | TLT/UUP macro features for GLD/SPY/QQQ | All 4 tickers feed every prediction |
+| LSTM advantage | Limited — trees win on tabular features | Full — model learns cross-asset temporal patterns |
+| Runtime | ~25-35 min CPU | ~12-15 min CPU |
+| Best result | SPY consensus 69.4% @ 36% coverage | SPY HighConf 66.9% @ 25.6% coverage |
 
-The dataset spans multiple years of daily trading data and requires no external datasets.
-
----
-
-# Feature Engineering
-
-To capture financial market dynamics, multiple engineered features are generated:
-
-### Price Features
-- Lagged closing prices
-- Lagged returns
-- High–low range
-- Open–close spread
-
-### Momentum Indicators
-- Momentum (5-day and 10-day)
-
-### Trend Indicators
-- Moving averages (5, 10, 20, 30)
-
-### Volatility Indicators
-- Rolling standard deviation of returns
-
-### Volume Indicators
-- Volume change
-- Volume moving averages
-
-These features allow machine learning models to capture short-term trends, volatility patterns, and market momentum.
+The answer: **it depends on the asset**. Feature engineering wins for GLD (macro-driven) and overall consistency. Raw multivariate sequences win for SPY high-confidence filtering.
 
 ---
 
-# Forecasting Models
+## Results Summary
 
-## Naive Baseline
+### V3 — Feature-Engineered LSTM (3-Fold Walk-Forward)
 
-The naive model assumes tomorrow’s price equals today’s price.
+| Ticker | Model | Directional Accuracy | Sharpe | Coverage |
+|--------|-------|---------------------|--------|----------|
+| SPY | LSTM_Attention | 62.1% | 3.16 | 100% |
+| SPY | LSTM_ARIMA_Consensus | **69.4%** | **6.51** | 36% |
+| SPY | LSTM_HighConf_0.6 | 61.8% | 2.24 | 80.8% |
+| GLD | LSTM_Attention | 55.5% | 3.02 | 100% |
+| AAPL | LSTM_Attention | 52.2% | 2.36 | 100% |
+| QQQ | LSTM_Attention | 49.7% | 2.26 | 100% |
 
-This provides a simple benchmark to evaluate whether more complex models add predictive value.
+### Multivariate LSTM (Single Split)
 
----
+| Ticker | Model | Directional Accuracy | Sharpe | Coverage |
+|--------|-------|---------------------|--------|----------|
+| SPY | LSTM_Multivariate | 50.6% | 3.52 | 100% |
+| SPY | LSTM_HighConf_0.6 | **66.9%** | **6.51** | 25.6% |
+| GLD | LSTM_Multivariate | 43.8% | 1.99 | 100% |
+| AAPL | LSTM_Multivariate | 47.3% | 1.81 | 100% |
+| QQQ | LSTM_Multivariate | 40.0% | 0.98 | 100% |
 
-## ARIMA (AutoRegressive Integrated Moving Average)
-
-A classical statistical model widely used in econometrics and financial forecasting.
-
-The ARIMA model is trained using rolling walk-forward evaluation to simulate real-time forecasting conditions.
-
----
-
-## LSTM Neural Network (PyTorch)
-
-A deep learning architecture designed for sequential time-series data.
-
-Model structure:
-
-- Multi-layer LSTM network
-- Fully connected prediction layer
-- ReLU activation
-- Dropout regularization
-
-The LSTM learns temporal patterns across historical price and feature sequences.
+> **Note on coverage:** High-confidence and consensus models trade only on a subset of days. Higher accuracy, lower exposure. The 69.4% and 66.9% results apply to 36% and 25.6% of trading days respectively.
 
 ---
 
-# Evaluation Metrics
+## Notebook 1 — `quant_asset_forecasting_v3.ipynb`
 
-Forecasting accuracy is evaluated using:
+### Architecture
 
-- **RMSE** — Root Mean Squared Error
-- **MAE** — Mean Absolute Error
-- **MAPE** — Mean Absolute Percentage Error
-- **Directional Accuracy**
+```
+Raw OHLCV + 40+ engineered features per ticker
+         ↓
+  MinMaxScaler (fit on train only — no leakage)
+         ↓
+  Sliding window sequences (length=30)
+         ↓
+  2-layer LSTM → LayerNorm → Attention → FC → logit
+         ↓
+  BCEWithLogitsLoss + Adam + ReduceLROnPlateau
+         ↓
+  Val-set threshold search (grid: 0.30–0.70)
+         ↓
+  3-fold walk-forward evaluation
+```
 
-Directional accuracy measures whether the model correctly predicts the **direction of price movement**, which is particularly important for trading strategies.
+### Features Engineered
+
+- **Returns:** 1d, 5d, 10d, 20d, intraday
+- **Lags:** close and return lags at 1, 2, 3, 5, 10 days
+- **Moving averages:** MA5, MA10, MA20, MA30, MA cross ratio
+- **Momentum:** 5-day and 10-day price momentum
+- **Volatility:** rolling std at 5, 10, 20 days + vol ratio
+- **Price spreads:** high-low range, open-close range
+- **Volume:** change, MA5, MA20
+- **Technical indicators:** RSI(14), RSI centered, MACD, MACD signal, MACD histogram, Bollinger Bands
+- **Ratio features:** price-to-MA20, vol ratio
+- **Calendar:** day of week, month
+- **Macro (GLD/SPY/QQQ only):** TLT 1d/5d returns, UUP 1d/5d returns
+
+### Models
+
+| Model | Description |
+|-------|-------------|
+| Naive | Yesterday's direction repeated |
+| ARIMA(1,1,1) | Walk-forward univariate baseline |
+| LSTM_Attention | 2-layer LSTM with attention + LayerNorm |
+| LSTM_HighConf_0.6 | LSTM on ≥60% confidence signals only |
+| LSTM_ARIMA_Consensus | Trade only when LSTM and ARIMA agree |
+
+### Training Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| Sequence length | 30 days |
+| Forecast horizon | 5 days |
+| Walk-forward folds | 3 |
+| Epochs | 60 (early stopping patience=10) |
+| Batch size | 64 |
+| Learning rate | 1e-3 |
+| Hidden size | 64 |
+| LSTM layers | 2 |
+| Dropout | 0.2 |
+| Label smoothing | 0.1 |
+| Loss | BCEWithLogitsLoss |
 
 ---
 
-# Trading Strategy Backtesting
+## Notebook 2 — `quant_lstm_multivariate.ipynb`
 
-Predictions are converted into trading signals.
+### Architecture
 
-### Strategy Logic
+```
+Raw OHLCV × 4 tickers = 20 input features per timestep
+         ↓
+  MinMaxScaler (fit on train only)
+         ↓
+  Sliding window sequences (length=30)
+         ↓
+  2-layer LSTM → LayerNorm → Attention → FC → logit
+         ↓
+  BCEWithLogitsLoss + label smoothing
+         ↓
+  Adam + ReduceLROnPlateau + early stopping
+         ↓
+  High-confidence filtering (≥0.60)
+```
 
-- Go **long** if predicted price > current price
-- Otherwise remain **in cash**
+### Why Raw Sequences Instead of Features?
 
-The resulting portfolio is compared against a buy-and-hold benchmark.
+Hand-engineered features (RSI, MACD, lags) are better suited to tree-based models. Feeding them to an LSTM adds noise without adding sequential structure. Raw OHLCV sequences let the LSTM learn temporal patterns directly — including cross-asset dependencies that no single-ticker feature set can capture.
 
-### Portfolio Performance Metrics
+### Speed Optimisations
 
-- Cumulative Return
-- Sharpe Ratio
-- Maximum Drawdown
-- Strategy vs Buy-and-Hold comparison
+| Optimisation | Impact |
+|---|---|
+| `BATCH_SIZE = 128` | 2× faster than 64 |
+| `EPOCHS = 40` | Early stopping triggers at ~25-35 anyway |
+| `ARIMA_REFIT_EVERY = 10` | Halves ARIMA walk-forward time |
+| No feature engineering | Data prep near-instant |
+| LayerNorm | Converges in fewer epochs |
 
-These metrics evaluate whether predictive models translate into **improved trading performance**.
+### Training Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| Sequence length | 30 days |
+| Forecast horizon | 5 days |
+| Train ratio | 75% |
+| Epochs | 40 (early stopping patience=12) |
+| Batch size | 128 |
+| Learning rate | 3e-4 |
+| Hidden size | 64 |
+| LSTM layers | 2 |
+| Dropout | 0.2 |
+| LayerNorm | Yes |
+| Label smoothing | 0.1 |
+| Loss | BCEWithLogitsLoss |
 
 ---
 
-# Research Results
+## How to Run
 
-Example comparison of model performance:
+```bash
+pip install yfinance pandas numpy scikit-learn statsmodels torch
+```
 
-| Model | RMSE | MAE | Directional Accuracy | Strategy Return | Sharpe Ratio |
-|------|------|------|------|------|------|
-| Naive Baseline | 2.41 | 1.88 | 50.2% | 4.1% | 0.32 |
-| ARIMA | 2.18 | 1.67 | 53.6% | 6.8% | 0.48 |
-| LSTM (PyTorch) | 1.95 | 1.52 | 57.9% | 9.4% | 0.71 |
+**V3 notebook:**
+1. Open `quant_asset_forecasting_v3.ipynb`
+2. Run all cells — use Cell 24 (sequential runner)
+3. Results saved to `quant_forecasting_model_comparison_robust.csv`
+4. Expected runtime: ~25-35 min CPU, ~15 min GPU
 
-### Key Observations
+**Multivariate notebook:**
+1. Open `quant_lstm_multivariate.ipynb`
+2. Run all cells sequentially
+3. Results saved to `quant_lstm_multivariate_results.csv`
+4. Expected runtime: ~12-15 min CPU
 
-- Deep learning models showed improved directional prediction accuracy.
-- LSTM models produced stronger trading signals compared to statistical baselines.
-- Strategy performance improved despite relatively small forecasting error improvements.
+> Both notebooks share the same `market_data_cache.pkl` file. Run either one first — the cache will be reused by the second automatically.
 
 ---
 
-# Project Structure
+## Design Decisions
+
+**Why BCEWithLogitsLoss without pos_weight?**
+Markets go up ~52-53% of days. Applying `pos_weight` correction caused model collapse (constant zero predictions) on AAPL and QQQ because any small window imbalance was amplified. Plain loss is more stable.
+
+**Why walk-forward validation (V3 only)?**
+A single 75/25 split tests one time period. Three expanding walk-forward windows test consistency across pre-COVID, COVID, and post-COVID market regimes — a much stronger claim of generalisability.
+
+**Why threshold tuning on validation set?**
+Different tickers output probabilities at different scales. A fixed 0.50 threshold performed poorly. Val-set grid search (0.30–0.70) finds the optimal cutoff before touching test data.
+
+**Why TLT and UUP for GLD/SPY/QQQ?**
+Gold is primarily driven by real rates and dollar strength. Treasury and dollar ETF returns provide these macro signals explicitly. Rate sensitivity also applies to SPY and QQQ in the current macro environment.
+
+**Why label smoothing?**
+Binary 0/1 targets on noisy daily data cause overconfident predictions. Smoothing (→ 0.1/0.9) produces better-calibrated probability outputs and more meaningful confidence filtering.
+
+---
+
+## Reproducibility
+
+- Data downloaded via `yfinance`, cached to `market_data_cache.pkl`
+- Cache validated for required tickers on every load
+- Seeds fixed: `np.random.seed(42)`, `torch.manual_seed(42)`
+- No external CSV files required — notebook is fully self-contained
